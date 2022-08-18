@@ -15,7 +15,7 @@ use workflow_websocket::client::{
 };
 
 use workflow_core::enums::u32_try_from;
-use workflow_log::{log_error, trace};
+use workflow_log::{log_error, log_trace};
 
 const STATUS_SUCCESS: u32 = 0;
 const STATUS_ERROR: u32 = 1;
@@ -307,7 +307,7 @@ impl RpcClient {
                         }
                     },
                     None => {
-                        trace!("rpc callback with id {} not found", msg.id);
+                        log_trace!("rpc callback with id {} not found", msg.id);
                     }
                 }
         
@@ -321,7 +321,7 @@ impl RpcClient {
         let id = header.id;
         let status = header.status;
 
-        trace!("RECEIVING MESSAGE ID: {}  STATUS: {}", id, status);
+        log_trace!("RECEIVING MESSAGE ID: {}  STATUS: {}", id, status);
     }
 }
 
@@ -368,7 +368,7 @@ where
         let data = req.try_to_vec().map_err(|_| { Error::BorshSerialize })?;
 
         self.rpc.dispatch(RpcOps::Borsh as u32, Message::Request(&data), Arc::new(Box::new(move |result| {
-            trace!("* * * * * Got response: {:?}", result);
+            log_trace!("* * * * * Got response: {:?}", result);
 
             match result {
                 Ok(data) => {
@@ -532,11 +532,11 @@ mod testing {
 
                 match rpc.dispatch(TestReq::Second(888),Arc::new(Box::new(move |result : Result<TestResp,Error>|{
 
-                    trace!("* * * * * * * * * received response: {:?}", result);
+                    log_trace!("* * * * * * * * * received response: {:?}", result);
 
                 }))).await {
-                    Ok(_) => { trace!("dispatch executed successfully"); },
-                    Err(err) => { trace!("dispatch failed: {:?}", err); },
+                    Ok(_) => { log_trace!("dispatch executed successfully"); },
+                    Err(err) => { log_trace!("dispatch failed: {:?}", err); },
                 }
 
                 async_std::task::sleep(std::time::Duration::from_millis(1000)).await;
