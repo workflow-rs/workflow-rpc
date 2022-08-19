@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use borsh::{BorshSerialize,BorshDeserialize};
 use crate::server::RpcHandler;
-use crate::RpcOps;
+use crate::ops::RpcOps;
 use crate::error::RpcResponseError;
 
 #[async_trait]

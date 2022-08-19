@@ -1,9 +1,8 @@
 use std::mem::size_of;
-use crate::ReqHeader;
 use workflow_websocket::client::message::Message as WebSocketMessage;
-use crate::*;
 use crate::client::error::Error;
 use borsh::BorshDeserialize;
+use workflow_core::enums::u32_try_from;
 
 pub enum Message<'data> {
     Request(&'data [u8]),
@@ -31,6 +30,26 @@ pub fn to_ws_msg(msg : (ReqHeader, Message<'_>)) -> WebSocketMessage {
     buffer.into()
 }
 
+#[derive(Clone, Copy)]
+#[repr(packed)]
+pub struct ReqHeader {
+    pub id : u64,
+    pub op : u32,
+}
+
+#[derive(Clone, Copy)]
+#[repr(packed)]
+pub struct RespHeader {
+    pub id : u64,
+    pub status : u32
+}
+
+u32_try_from! {
+    pub enum RespStatus {
+        Success = 0,
+        Error = 1,
+    }
+}
 
 #[derive(Debug)]
 pub enum RespError<T>

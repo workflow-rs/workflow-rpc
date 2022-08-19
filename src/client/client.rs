@@ -3,20 +3,14 @@ use ahash::AHashMap;
 use std::{mem::size_of, sync::{Arc, Mutex}};
 use manual_future::{ManualFuture, ManualFutureCompleter};
 use workflow_websocket::client::{
-    WebSocket,
+    WebSocket, Ctl,
     Settings as WebSocketSettings,
     Message as WebSocketMessage,
-    Ctl
 };
-// use crate::*;
-use crate::{ReqHeader, RespHeader};
-use crate::client::*;
-use crate::client::identifier::*;
-use crate::client::error::*;
+use crate::client::identifier::Identifier;
+use crate::client::error::Error;
 use crate::message::*;
 use crate::error::*;
-
-// use workflow_core::enums::u32_try_from;
 use workflow_log::{log_error, log_trace};
 
 const STATUS_SUCCESS: u32 = 0;
@@ -196,59 +190,4 @@ impl RpcClient {
     }
 }
 
-
-
-#[allow(dead_code)]
-static mut RPC : Option<Arc<RpcClientBorsh<TestReq,TestResp>>> = None;
-#[cfg(target_arch = "wasm32")]
-mod testing {
-    #[allow(dead_code)]
-
-    use super::*;
-    // use wasm_bindgen::prelude::*;
-    #[allow(unused_imports)]
-    use workflow_allocator::log::*;
-    // use workflow_allocator::wasm::timers;
-
-    #[allow(dead_code)]
-    // #[wasm_bindgen(start)]
-    pub fn start_websocket() -> Result<(),Error> {
-
-        let rpc = RpcClientBorsh::<TestReq,TestResp>::new("ws://localhost:9090")?;
-
-        // let ws = WebSocket::new("ws://localhost:9090", Settings::default())?;
-        // let ws = WebSocket::new("wss://echo.websocket.events")?;
-
-        unsafe { RPC = Some(rpc.clone() )};
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-        crate::task::spawn(async move {
-
-            loop {
-
-
-                match rpc.dispatch(TestReq::Second(888),Arc::new(Box::new(move |result : Result<TestResp,Error>|{
-
-                    log_trace!("* * * * * * * * * received response: {:?}", result);
-
-                }))).await {
-                    Ok(_) => { log_trace!("dispatch executed successfully"); },
-                    Err(err) => { log_trace!("dispatch failed: {:?}", err); },
-                }
-
-                async_std::task::sleep(std::time::Duration::from_millis(1000)).await;
-            }
-        });
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-        Ok(())
-    }
-
-}
 

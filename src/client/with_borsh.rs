@@ -6,7 +6,7 @@ use workflow_log::log_trace;
 use crate::client::RpcClient;
 use crate::client::error::Error;
 use crate::message::Message;
-use crate::RpcOps;
+use crate::ops::RpcOps;
 
 #[derive(Clone)]
 pub struct RpcClientBorsh<Req,Resp> 
