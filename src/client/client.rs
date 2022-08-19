@@ -7,7 +7,6 @@ use workflow_websocket::client::{
     Settings as WebSocketSettings,
     Message as WebSocketMessage,
 };
-use crate::client::identifier::Identifier;
 use crate::client::error::Error;
 use crate::message::*;
 use crate::error::*;
@@ -34,12 +33,10 @@ pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<Option<&[u8]>,Error>) + Sync + S
 
 #[derive(Clone)]
 pub struct RpcClient {
-    id : Identifier,
     ws : WebSocket,
     is_open : Arc<Mutex<bool>>,
     receiver_is_running : Arc<Mutex<bool>>,
     receiver : Arc<Mutex<Option<ManualFuture<()>>>>,
-
     pending : Arc<Mutex<AHashMap<u64, RpcResponseFn>>>,
 }
 
@@ -49,7 +46,6 @@ impl RpcClient {
         let (receiver, completer) = ManualFuture::<()>::new();
 
         let client = Arc::new(RpcClient{
-            id: Identifier::default(),
             ws: WebSocket::new(url, WebSocketSettings::default())?,
             pending: Arc::new(Mutex::new(AHashMap::new())),
             is_open : Arc::new(Mutex::new(false)),
@@ -75,7 +71,7 @@ impl RpcClient {
     ) -> Result<(),Error> {
 
         let mut pending = self.pending.lock().unwrap();
-        let id = self.id.next();
+        let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
         pending.insert(id,callback);
         drop(pending);
         self.ws.send(to_ws_msg((ReqHeader{op,id},message))).await?;
