@@ -1,27 +1,36 @@
 use borsh::BorshDeserialize;
 use ahash::AHashMap;
-use std::{mem::size_of, sync::{Arc, Mutex}, time::{Instant, Duration}};
+use std::{
+    mem::size_of, 
+    sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}}, 
+    time::{Instant, Duration},
+    marker::Send
+};
 use futures::{
     future::FutureExt, // for `.fuse()`
     pin_mut,
     select,
 };
 use workflow_websocket::client::{
-    WebSocket, Ctl,
+    WebSocket,
     Settings as WebSocketSettings,
     Message as WebSocketMessage,
+    Error as WebSocketError,
 };
 use crate::client::error::Error;
 use crate::client::result::Result;
 use crate::message::*;
 use crate::error::*;
 use workflow_log::{log_error, log_trace};
+use workflow_core::channel::*;
 use workflow_core::trigger::*;
-// use workflow_core::ReqRespTrigger::ReqRespTrigger;
-// use workflow_core::channel::oneshot;
+
+pub use workflow_websocket::client::Ctl;
 
 const STATUS_SUCCESS: u32 = 0;
 const STATUS_ERROR: u32 = 1;
+
+const RPC_CTL_RECEIVER_SHUTDOWN: u32 = 0;
 
 pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<Option<&[u8]>>) + Sync + Send)>>;
 
@@ -39,86 +48,59 @@ impl Pending {
     }
 }
 
-#[derive(Clone)]
-pub struct RpcClient {
+struct Inner {
     ws : WebSocket,
-    is_open : Arc<Mutex<bool>>,
+    is_open : AtomicBool,
     pending : Arc<Mutex<AHashMap<u64, Pending>>>,
-    receiver_is_running : Arc<Mutex<bool>>,
-    timeout_is_running : Arc<Mutex<bool>>,
-    receiver_shutdown : SingleTrigger,//Oneshot,
+    receiver_is_running : AtomicBool,
+    timeout_is_running : AtomicBool,
+    receiver_shutdown : SingleTrigger,
     timeout_shutdown : ReqRespTrigger,
-    timeout_timer_interval : Duration,
-    timeout_duration : Duration,
+    timeout_timer_interval : AtomicU64,
+    timeout_duration : AtomicU64,
+    ctl_channel : Mutex<Option<(Sender<Ctl>, Receiver<Ctl>)>>,
 }
 
-impl RpcClient {
-    pub fn new(url : &str) -> Result<Arc<RpcClient>> {
-
-        let client = Arc::new(RpcClient{
+impl Inner {
+    fn new(url : &str) -> Result<Self> {
+        let inner = Inner {
             ws: WebSocket::new(url, WebSocketSettings::default())?,
             pending: Arc::new(Mutex::new(AHashMap::new())),
-            is_open : Arc::new(Mutex::new(false)),
-            receiver_is_running : Arc::new(Mutex::new(false)),
-            receiver_shutdown : SingleTrigger::new(), //trigger(), //Oneshot::new(),
-            timeout_is_running : Arc::new(Mutex::new(false)),
-            timeout_shutdown : ReqRespTrigger::new(), //ReqResp::new(),
-            timeout_duration : Duration::from_millis(60_000),
-            timeout_timer_interval : Duration::from_millis(5_000),
-        });
+            is_open : AtomicBool::new(false),
+            receiver_is_running : AtomicBool::new(false),
+            receiver_shutdown : SingleTrigger::new(),
+            timeout_is_running : AtomicBool::new(false),
+            timeout_shutdown : ReqRespTrigger::new(),
+            timeout_duration : AtomicU64::new(60_000),
+            timeout_timer_interval : AtomicU64::new(5_000),
+            ctl_channel : Mutex::new(None),
+        };
 
-        client.timeout_task();
-        client.receiver_task();
-
-        Ok(client)
+        Ok(inner)
     }
 
-    pub async fn connect(&self, block_until_connected:bool) -> Result<()> {
-        Ok(self.ws.connect(block_until_connected).await?)
-    }
-
-    pub async fn shutdown(self : &Arc<Self>) -> Result<()> {
-        self.stop_timeout().await?;
-        self.stop_receiver().await?;
-        Ok(())
-    }
-
-    pub async fn call(
-        self : &Arc<Self>,
-        op : u32,
-        message : Message<'_>,
-        callback : RpcResponseFn
-    ) -> Result<()> {
-
-        let mut pending = self.pending.lock().unwrap();
-        let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
-        pending.insert(id,Pending::new(callback));
-        drop(pending);
-        self.ws.post(to_ws_msg((ReqHeader{op,id},message))).await?;
-        Ok(())
-    }
-
-    fn timeout_task(self : &Arc<Self>) {
-        
-        *self.timeout_is_running.lock().unwrap() = true;
-        let self_ = self.clone();
+    fn timeout_task(self : Arc<Self>) {   
+        self.timeout_is_running.store(true, Ordering::SeqCst);
+        // let self_ = self.clone();
         workflow_core::task::spawn(async move {
             
-            let shutdown = self_.timeout_shutdown.request.listener.clone().fuse();
+            let shutdown = self.timeout_shutdown.request.listener.clone().fuse();
             pin_mut!(shutdown);
 
             loop {
                 
-                let delay = async_std::task::sleep(self_.timeout_timer_interval).fuse();
+                let timeout_timer_interval = Duration::from_millis(self.timeout_timer_interval.load(Ordering::SeqCst));
+                let delay = async_std::task::sleep(timeout_timer_interval).fuse();
                 pin_mut!(delay);
 
                 select! {
                     () = shutdown => { break; },
                     () = delay => {
-                        let mut pending = self_.pending.lock().unwrap();
+                        let mut pending = self.pending.lock().unwrap();
                         let mut purge = Vec::<u64>::new();
+                        let timeout = Duration::from_millis(self.timeout_duration.load(Ordering::Relaxed));
                         for (id,pending) in pending.iter() {
-                            if pending.timestamp.elapsed() > self_.timeout_duration {
+                            if pending.timestamp.elapsed() > timeout {
                                 purge.push(*id);
                                 (pending.callback)(Err(Error::Timeout));
                             }
@@ -130,16 +112,15 @@ impl RpcClient {
                 }
             }
 
-            *self_.timeout_is_running.lock().unwrap() = false;
-            self_.timeout_shutdown.response.trigger.trigger();//.await;
+            self.timeout_is_running.store(false,Ordering::SeqCst);
+            self.timeout_shutdown.response.trigger.trigger();
         });
 
     }
 
-    fn receiver_task(self : &Arc<Self>) {
-        *self.receiver_is_running.lock().unwrap() = true;
+    fn receiver_task(self : Arc<Self>) {
+        self.receiver_is_running.store(true,Ordering::SeqCst);
         let receiver_rx = self.ws.receiver_rx().clone();
-        let self_ = self.clone();
         workflow_core::task::spawn(async move {
 
             loop {
@@ -147,20 +128,29 @@ impl RpcClient {
 
                 match message {
                     WebSocketMessage::Binary(data) => {
-                        self_.handle_response(&data);
+                        self.handle_response(&data);
                     },
                     WebSocketMessage::Ctl(ctl) => {
                         match ctl {
                             Ctl::Open => {
-                                *self_.is_open.lock().unwrap() = true;
+                                self.is_open.store(true,Ordering::SeqCst);
                             },
                             Ctl::Closed => {
-                                *self_.is_open.lock().unwrap() = false;
+                                self.is_open.store(false,Ordering::SeqCst);
                             },
-                            Ctl::Custom(0) => {
+                            Ctl::RpcCtl(RPC_CTL_RECEIVER_SHUTDOWN) => {
                                 break;
                             },
                             _ => { }
+                        }
+
+                        let sender = match self.ctl_channel.lock().unwrap().as_ref() {
+                            Some(channel) => Some(channel.0.clone()),
+                            None => None
+                        };
+
+                        if let Some(sender) = sender {
+                            sender.clone().send(ctl).await.unwrap();
                         }
                     },
                     _ => {
@@ -169,35 +159,13 @@ impl RpcClient {
                 }
             }
 
-            *self_.receiver_is_running.lock().unwrap() = false;
-            self_.receiver_shutdown.trigger.trigger();//send(()).await;
+            self.receiver_is_running.store(false,Ordering::SeqCst);
+            self.receiver_shutdown.trigger.trigger();//send(()).await;
         });
     }
 
-    async fn stop_receiver(self : &Arc<Self>) -> Result<()> {
-        if *self.receiver_is_running.lock().unwrap() != true {
-            return Ok(());
-        }
 
-        self.ws.inject_ctl(Ctl::Custom(0)).map_err(|_| { Error::ReceiverCtl })?;
-        // self.ws.receiver_tx().send(WebSocketMessage::Ctl(Ctl::Shutdown)).await.map_err(|_| { Error::ReceiverCtl })?;
-        self.receiver_shutdown.listener.clone().await;
-
-        Ok(())
-    }
-
-    async fn stop_timeout(self : &Arc<Self>) -> Result<()> {
-        if *self.timeout_is_running.lock().unwrap() != true {
-            return Ok(());
-        }
-
-        self.timeout_shutdown.request.trigger.trigger();//send(()).await;
-        self.timeout_shutdown.response.listener.clone().await; //recv().await;
-        
-        Ok(())
-    }
-
-    fn handle_response(self : &Arc<Self>, response : &[u8]) {
+    fn handle_response(&self, response : &[u8]) {
 
         if response.len() < size_of::<RespHeader>() {
             log_error!("RPC receiving response with {} bytes, which is smaller than required header size of {} bytes", response.len(), size_of::<ReqHeader>());
@@ -247,8 +215,90 @@ impl RpcClient {
         let id = header.id;
         let status = header.status;
 
-        log_trace!("RECEIVING MESSAGE ID: {}  STATUS: {}", id, status);
+        log_trace!("RECEIVING MESSAGE ID: {:x}  STATUS: {}", id, status);
+    }    
+}
+
+#[derive(Clone)]
+pub struct RpcClient {
+    inner: Arc<Inner>
+}
+
+impl RpcClient {
+    pub fn new(url : &str) -> Result<RpcClient> {
+
+        let client = RpcClient{
+            inner : Arc::new(Inner::new(url)?)
+        };
+
+        client.inner.clone().timeout_task();
+        client.inner.clone().receiver_task();
+
+        Ok(client)
     }
+
+    pub fn init_ctl(&self) -> Receiver<Ctl> {
+        let channel = unbounded();
+        let receiver = channel.1.clone();
+        *self.inner.ctl_channel.lock().unwrap() = Some(channel);
+        receiver
+    }
+
+    pub async fn connect(&self, block_until_connected:bool) -> Result<()> {
+        Ok(self.inner.ws.connect(block_until_connected).await?)
+    }
+
+    pub async fn shutdown(&self) -> Result<()> {
+        self.stop_timeout().await?;
+        self.stop_receiver().await?;
+        Ok(())
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.inner.ws.is_open()
+    }
+
+    pub async fn call(
+        &self,
+        op : u32,
+        message : Message<'_>,
+        callback : RpcResponseFn
+    ) -> Result<()> {
+        if !self.is_open() {
+            return Err(WebSocketError::NotConnected.into());
+        }
+
+        let mut pending = self.inner.pending.lock().unwrap();
+        let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
+        pending.insert(id,Pending::new(callback));
+        drop(pending);
+        self.inner.ws.post(to_ws_msg((ReqHeader{op,id},message))).await?;
+        Ok(())
+    }
+
+
+    async fn stop_receiver(&self) -> Result<()> {
+        if self.inner.receiver_is_running.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        self.inner.ws.inject_ctl(Ctl::RpcCtl(RPC_CTL_RECEIVER_SHUTDOWN)).map_err(|_| { Error::ReceiverCtl })?;
+        self.inner.receiver_shutdown.listener.clone().await;
+
+        Ok(())
+    }
+
+    async fn stop_timeout(&self) -> Result<()> {
+        if self.inner.timeout_is_running.load(Ordering::SeqCst) != true {
+            return Ok(());
+        }
+
+        self.inner.timeout_shutdown.request.trigger.trigger();
+        self.inner.timeout_shutdown.response.listener.clone().await;
+        
+        Ok(())
+    }
+
 }
 
 

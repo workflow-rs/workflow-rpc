@@ -15,7 +15,7 @@ where
     Req : Debug + Send + Sync + BorshSerialize + 'static,
     Resp : Debug + Send + Sync + BorshDeserialize + 'static,
 {
-    rpc : Arc<RpcClient>,
+    rpc : RpcClient,
     _req_ : PhantomData<Req>,
     _resp_ : PhantomData<Resp>,
 }
@@ -40,7 +40,11 @@ where
         self : &Arc<Self>,
         req : Req,
         callback : Arc<Box<(dyn Fn(Result<Resp>) + Sync + Send)>>
-    ) -> Result<()> {
+    ) -> Result<()> 
+    where
+        Req : BorshSerialize,
+        Resp : BorshDeserialize,
+    {
 
         let data = req.try_to_vec().map_err(|_| { Error::BorshSerialize })?;
 

@@ -59,6 +59,10 @@ where
         Ok(Arc::new(ctx))
     }
 
+    async fn handshake(self : &Arc<Self>, _ctx : &Self::Context, _msg : Message, _sink : &UnboundedSender<tungstenite::Message>) -> WebSocketResult<()> {
+        Ok(())
+    }
+
     async fn message(self : &Arc<Self>, ctx : &Self::Context, msg : Message, sink : &UnboundedSender<tungstenite::Message>) -> WebSocketResult<()> {
 
         let data = &msg.into_data();
