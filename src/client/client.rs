@@ -12,16 +12,18 @@ use workflow_websocket::client::{
     Message as WebSocketMessage,
 };
 use crate::client::error::Error;
+use crate::client::result::Result;
 use crate::message::*;
 use crate::error::*;
 use workflow_log::{log_error, log_trace};
-use workflow_core::sync::reqresp::ReqResp;
-use workflow_core::sync::oneshot::Oneshot;
+use workflow_core::trigger::*;
+// use workflow_core::ReqRespTrigger::ReqRespTrigger;
+// use workflow_core::channel::oneshot;
 
 const STATUS_SUCCESS: u32 = 0;
 const STATUS_ERROR: u32 = 1;
 
-pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<Option<&[u8]>,Error>) + Sync + Send)>>;
+pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<Option<&[u8]>>) + Sync + Send)>>;
 
 struct Pending {
     timestamp : Instant,
@@ -44,23 +46,23 @@ pub struct RpcClient {
     pending : Arc<Mutex<AHashMap<u64, Pending>>>,
     receiver_is_running : Arc<Mutex<bool>>,
     timeout_is_running : Arc<Mutex<bool>>,
-    receiver_shutdown : Oneshot,
-    timeout_shutdown : ReqResp,
+    receiver_shutdown : SingleTrigger,//Oneshot,
+    timeout_shutdown : ReqRespTrigger,
     timeout_timer_interval : Duration,
     timeout_duration : Duration,
 }
 
 impl RpcClient {
-    pub fn new(url : &str) -> Result<Arc<RpcClient>,Error> {
+    pub fn new(url : &str) -> Result<Arc<RpcClient>> {
 
         let client = Arc::new(RpcClient{
             ws: WebSocket::new(url, WebSocketSettings::default())?,
             pending: Arc::new(Mutex::new(AHashMap::new())),
             is_open : Arc::new(Mutex::new(false)),
             receiver_is_running : Arc::new(Mutex::new(false)),
-            receiver_shutdown : Oneshot::new(),
+            receiver_shutdown : SingleTrigger::new(), //trigger(), //Oneshot::new(),
             timeout_is_running : Arc::new(Mutex::new(false)),
-            timeout_shutdown : ReqResp::new(),
+            timeout_shutdown : ReqRespTrigger::new(), //ReqResp::new(),
             timeout_duration : Duration::from_millis(60_000),
             timeout_timer_interval : Duration::from_millis(5_000),
         });
@@ -71,24 +73,28 @@ impl RpcClient {
         Ok(client)
     }
 
-    pub async fn shutdown(self : &Arc<Self>) -> Result<(),Error> {
+    pub async fn connect(&self, block_until_connected:bool) -> Result<()> {
+        Ok(self.ws.connect(block_until_connected).await?)
+    }
+
+    pub async fn shutdown(self : &Arc<Self>) -> Result<()> {
         self.stop_timeout().await?;
         self.stop_receiver().await?;
         Ok(())
     }
 
-    pub async fn dispatch(
+    pub async fn call(
         self : &Arc<Self>,
         op : u32,
         message : Message<'_>,
         callback : RpcResponseFn
-    ) -> Result<(),Error> {
+    ) -> Result<()> {
 
         let mut pending = self.pending.lock().unwrap();
         let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
         pending.insert(id,Pending::new(callback));
         drop(pending);
-        self.ws.send(to_ws_msg((ReqHeader{op,id},message))).await?;
+        self.ws.post(to_ws_msg((ReqHeader{op,id},message))).await?;
         Ok(())
     }
 
@@ -96,9 +102,9 @@ impl RpcClient {
         
         *self.timeout_is_running.lock().unwrap() = true;
         let self_ = self.clone();
-        workflow_core::sync::task::spawn(async move {
+        workflow_core::task::spawn(async move {
             
-            let shutdown = self_.timeout_shutdown.request.take_future().fuse();
+            let shutdown = self_.timeout_shutdown.request.listener.clone().fuse();
             pin_mut!(shutdown);
 
             loop {
@@ -125,16 +131,16 @@ impl RpcClient {
             }
 
             *self_.timeout_is_running.lock().unwrap() = false;
-            self_.timeout_shutdown.response.send(()).await;
+            self_.timeout_shutdown.response.trigger.trigger();//.await;
         });
 
     }
 
     fn receiver_task(self : &Arc<Self>) {
         *self.receiver_is_running.lock().unwrap() = true;
-        let receiver_rx = self.ws.receiver_rx.clone();
+        let receiver_rx = self.ws.receiver_rx().clone();
         let self_ = self.clone();
-        workflow_core::sync::task::spawn(async move {
+        workflow_core::task::spawn(async move {
 
             loop {
                 let message = receiver_rx.recv().await.unwrap();
@@ -151,7 +157,7 @@ impl RpcClient {
                             Ctl::Closed => {
                                 *self_.is_open.lock().unwrap() = false;
                             },
-                            Ctl::Shutdown => {
+                            Ctl::Custom(0) => {
                                 break;
                             },
                             _ => { }
@@ -164,28 +170,29 @@ impl RpcClient {
             }
 
             *self_.receiver_is_running.lock().unwrap() = false;
-            self_.receiver_shutdown.send(()).await;
+            self_.receiver_shutdown.trigger.trigger();//send(()).await;
         });
     }
 
-    async fn stop_receiver(self : &Arc<Self>) -> Result<(),Error> {
+    async fn stop_receiver(self : &Arc<Self>) -> Result<()> {
         if *self.receiver_is_running.lock().unwrap() != true {
             return Ok(());
         }
 
-        self.ws.receiver_tx.send(WebSocketMessage::Ctl(Ctl::Shutdown)).await.map_err(|_| { Error::ReceiverCtl })?;
-        self.receiver_shutdown.recv().await;
+        self.ws.inject_ctl(Ctl::Custom(0)).map_err(|_| { Error::ReceiverCtl })?;
+        // self.ws.receiver_tx().send(WebSocketMessage::Ctl(Ctl::Shutdown)).await.map_err(|_| { Error::ReceiverCtl })?;
+        self.receiver_shutdown.listener.clone().await;
 
         Ok(())
     }
 
-    async fn stop_timeout(self : &Arc<Self>) -> Result<(),Error> {
+    async fn stop_timeout(self : &Arc<Self>) -> Result<()> {
         if *self.timeout_is_running.lock().unwrap() != true {
             return Ok(());
         }
 
-        self.timeout_shutdown.request.send(()).await;
-        self.timeout_shutdown.response.recv().await;
+        self.timeout_shutdown.request.trigger.trigger();//send(()).await;
+        self.timeout_shutdown.response.listener.clone().await; //recv().await;
         
         Ok(())
     }

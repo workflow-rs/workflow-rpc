@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use async_trait::async_trait;
 use workflow_websocket::server::WebSocketHandler;
@@ -6,9 +7,17 @@ use crate::message::*;
 use crate::error::RpcResponseError;
 use tokio::sync::mpsc::*;
 use workflow_log::*;
-use workflow_websocket::server::WebSocketServer;
-use tungstenite::{Message, Result};
+use workflow_websocket::server::{
+    WebSocketServer, Result as WebSocketResult
+};
+// use tungstenite::{Message, Result};
+use tungstenite::Message;
 use borsh::BorshSerialize;
+
+pub struct RpcContext {
+    pub peer : SocketAddr,
+}
+
 
 #[async_trait]
 pub trait RpcHandler<Ops> : Send + Sync + 'static
@@ -43,7 +52,14 @@ where
     Ops: Debug + Clone + Send + Sync + TryFrom<u32> + 'static,
     <Ops as TryFrom<u32>>::Error: Sync + Send + 'static
 {
-    async fn handle_message(self : &Arc<Self>, msg : Message, sink : UnboundedSender<tungstenite::Message>) {
+    type Context = Arc<RpcContext>;
+
+    async fn connect(self : &Arc<Self>, peer: SocketAddr) -> WebSocketResult<Self::Context> {
+        let ctx = RpcContext { peer };
+        Ok(Arc::new(ctx))
+    }
+
+    async fn message(self : &Arc<Self>, ctx : &Self::Context, msg : Message, sink : &UnboundedSender<tungstenite::Message>) -> WebSocketResult<()> {
 
         let data = &msg.into_data();
         let req : ReqMessage = data.try_into().expect("invalid message!");
@@ -77,6 +93,8 @@ where
                 log_error!("invalid request opcode {}", req.op);                
             }
         }
+
+        Ok(())
     }
 }
 
@@ -99,7 +117,7 @@ where
         Arc::new(RpcServer { ws_server })
     }
 
-    pub async fn listen(self : &Arc<Self>, addr : &str) -> Result<()> {
-        self.ws_server.listen(addr).await
+    pub async fn listen(self : &Arc<Self>, addr : &str) -> WebSocketResult<()> {
+        Ok(self.ws_server.listen(addr).await?)
     }
 }
