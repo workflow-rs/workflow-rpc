@@ -1,7 +1,7 @@
 use thiserror::Error;
 use workflow_websocket::client::error::Error as WebSocketError;
 use wasm_bindgen::JsValue;
-use crate::error::RpcResponseError;
+use crate::asynchronous::error::RpcResponseError;
 
 #[derive(Error, Debug)]
 pub enum Error {

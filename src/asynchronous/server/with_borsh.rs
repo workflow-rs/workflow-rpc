@@ -2,9 +2,9 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use async_trait::async_trait;
 use borsh::{BorshSerialize,BorshDeserialize};
-use crate::server::RpcHandler;
-use crate::ops::RpcOps;
-use crate::error::RpcResponseError;
+use crate::asynchronous::server::RpcHandler;
+use crate::asynchronous::ops::RpcOps;
+use crate::asynchronous::error::RpcResponseError;
 
 #[async_trait]
 pub trait RpcHandlerBorsh<Req,Resp> : Send + Sync + 'static

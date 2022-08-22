@@ -17,10 +17,14 @@ use workflow_websocket::client::{
     Message as WebSocketMessage,
     Error as WebSocketError,
 };
-use crate::client::error::Error;
-use crate::client::result::Result;
-use crate::message::*;
-use crate::error::*;
+// use crate::asynchronous::client::*;
+use super::*;
+use super::error::Error;
+use super::result::Result;
+// use crate::asynchronous::client::error::Error;
+// use crate::asynchronous::client::result::Result;
+// use crate::message::*;
+// use crate::error::*;
 use workflow_log::{log_error, log_trace};
 use workflow_core::channel::*;
 use workflow_core::trigger::*;

@@ -1,6 +1,6 @@
 use std::mem::size_of;
 use workflow_websocket::client::message::Message as WebSocketMessage;
-use crate::client::error::Error;
+use crate::asynchronous::client::error::Error;
 use borsh::BorshDeserialize;
 use workflow_core::enums::u32_try_from;
 

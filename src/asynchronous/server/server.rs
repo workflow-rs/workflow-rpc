@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use async_trait::async_trait;
 use workflow_websocket::server::WebSocketHandler;
-use crate::message::*;
-use crate::error::RpcResponseError;
+use crate::asynchronous::message::*;
+use crate::asynchronous::error::RpcResponseError;
 use tokio::sync::mpsc::*;
 use workflow_log::*;
 use workflow_websocket::server::{
@@ -63,7 +63,7 @@ where
         Ok(())
     }
 
-    async fn message(self : &Arc<Self>, ctx : &Self::Context, msg : Message, sink : &UnboundedSender<tungstenite::Message>) -> WebSocketResult<()> {
+    async fn message(self : &Arc<Self>, _ctx : &Self::Context, msg : Message, sink : &UnboundedSender<tungstenite::Message>) -> WebSocketResult<()> {
 
         let data = &msg.into_data();
         let req : ReqMessage = data.try_into().expect("invalid message!");

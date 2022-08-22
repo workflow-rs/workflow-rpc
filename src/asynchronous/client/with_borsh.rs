@@ -3,11 +3,15 @@ use std::marker::PhantomData;
 use std::fmt::Debug;
 use borsh::{BorshSerialize,BorshDeserialize};
 use workflow_log::log_trace;
-use crate::client::RpcClient;
-use crate::client::error::Error;
-use crate::client::result::Result;
-use crate::message::Message;
-use crate::ops::RpcOps;
+use super::*;
+use super::error::Error;
+use super::result::Result;
+
+// use crate::asynchronous::client::RpcClient;
+// use crate::client::error::Error;
+// use crate::client::result::Result;
+// use crate::message::Message;
+// use crate::ops::RpcOps;
 
 #[derive(Clone)]
 pub struct RpcClientBorsh<Req,Resp> 
