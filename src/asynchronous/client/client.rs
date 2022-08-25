@@ -1,4 +1,4 @@
-use borsh::BorshDeserialize;
+use borsh::{BorshSerialize,BorshDeserialize};
 use ahash::AHashMap;
 use std::{
     mem::size_of, 
@@ -38,6 +38,9 @@ const RPC_CTL_RECEIVER_SHUTDOWN: u32 = 0;
 
 pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<Option<&[u8]>>) + Sync + Send)>>;
 
+
+
+
 struct Pending {
     timestamp : Instant,
     callback : RpcResponseFn,
@@ -52,7 +55,7 @@ impl Pending {
     }
 }
 
-struct Inner {
+pub struct Inner {
     ws : WebSocket,
     is_open : AtomicBool,
     pending : Arc<Mutex<AHashMap<u64, Pending>>>,
@@ -132,7 +135,10 @@ impl Inner {
 
                 match message {
                     WebSocketMessage::Binary(data) => {
-                        self.handle_response(&data);
+                        self.handle_binary_response(&data);
+                    },
+                    WebSocketMessage::Text(_text) => {
+                        // self.handle_json_response(text);
                     },
                     WebSocketMessage::Ctl(ctl) => {
                         match ctl {
@@ -156,9 +162,6 @@ impl Inner {
                         if let Some(sender) = sender {
                             sender.clone().send(ctl).await.unwrap();
                         }
-                    },
-                    _ => {
-
                     }
                 }
             }
@@ -169,7 +172,7 @@ impl Inner {
     }
 
 
-    fn handle_response(&self, response : &[u8]) {
+    fn handle_binary_response(&self, response : &[u8]) {
 
         if response.len() < size_of::<RespHeader>() {
             log_error!("RPC receiving response with {} bytes, which is smaller than required header size of {} bytes", response.len(), size_of::<ReqHeader>());
@@ -220,19 +223,106 @@ impl Inner {
         let status = header.status;
 
         log_trace!("RECEIVING MESSAGE ID: {:x}  STATUS: {}", id, status);
-    }    
+    }   
+    
+
+    // fn handle_json_response(&self, response : String) {
+
+    //     // if response.len() < size_of::<RespHeader>() {
+    //     //     log_error!("RPC receiving response with {} bytes, which is smaller than required header size of {} bytes", response.len(), size_of::<ReqHeader>());
+    //     // }
+
+    //     // let msg = RespMessage::try_from(response);
+    //     // match msg {
+    //     //     Ok(msg) => {
+
+    //     //         match self.pending.lock().unwrap().remove(&msg.id) {
+    //     //             Some(pending) => {
+
+    //     //                 match msg.status {
+    //     //                     STATUS_SUCCESS  => { (pending.callback)(Ok(msg.data)); },
+    //     //                     STATUS_ERROR => {
+
+    //     //                         match msg.data {
+    //     //                             Some(data) => {
+    //     //                                 if let Ok(err) = RpcResponseError::try_from_slice(data) {
+    //     //                                     (pending.callback)(Err(Error::RpcCall(err)));
+    //     //                                 } else {
+    //     //                                     (pending.callback)(Err(Error::ErrorDeserializingResponseData));
+    //     //                                 }
+    //     //                             },
+    //     //                             None => {
+    //     //                                 (pending.callback)(Err(Error::NoDataInErrorResponse));
+    //     //                             }
+    //     //                         }
+    //     //                     }
+    //     //                     code  => { 
+    //     //                         (pending.callback)(Err(Error::StatusCode(code))) 
+    //     //                     },
+    //     //                 }
+    //     //             },
+    //     //             None => {
+    //     //                 log_trace!("rpc callback with id {} not found", msg.id);
+    //     //             }
+    //     //         }
+        
+    //     //     },
+    //     //     Err(err) => {
+    //     //         log_error!("Failed to decode rpc server response: {:?}", err);
+    //     //     }
+    //     // }
+
+    //     // let header: &RespHeader = unsafe { std::mem::transmute(&response[0]) };
+    //     // let id = header.id;
+    //     // let status = header.status;
+
+    //     // log_trace!("RECEIVING MESSAGE ID: {:x}  STATUS: {}", id, status);
+    // }   
+    
+    
+    async fn stop_receiver(&self) -> Result<()> {
+        if self.receiver_is_running.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        self.ws.inject_ctl(Ctl::RpcCtl(RPC_CTL_RECEIVER_SHUTDOWN)).map_err(|_| { Error::ReceiverCtl })?;
+        self.receiver_shutdown.listener.clone().await;
+
+        Ok(())
+    }
+
+    async fn stop_timeout(&self) -> Result<()> {
+        if self.timeout_is_running.load(Ordering::SeqCst) != true {
+            return Ok(());
+        }
+
+        self.timeout_shutdown.request.trigger.trigger();
+        self.timeout_shutdown.response.listener.clone().await;
+        
+        Ok(())
+    }
+
 }
 
 #[derive(Clone)]
-pub struct RpcClient {
-    inner: Arc<Inner>
+pub struct RpcClient<Ops>
+where
+    // Arc<Inner> : Send + Sync,
+    Ops : TryInto<u32> + Send + Sync + 'static,
+{
+    inner: Arc<Inner>,
+    _ops_ : std::marker::PhantomData<Ops>,
 }
 
-impl RpcClient {
-    pub fn new(url : &str) -> Result<RpcClient> {
+impl<Ops> RpcClient<Ops>
+where
+    Ops : Into<u32> + Send + Sync + 'static
+{
+    pub fn new(url : &str) -> Result<RpcClient<Ops>> {
 
         let client = RpcClient{
-            inner : Arc::new(Inner::new(url)?)
+            inner : Arc::new(Inner::new(url)?),
+            _ops_ : std::marker::PhantomData,
         };
 
         client.inner.clone().timeout_task();
@@ -253,8 +343,8 @@ impl RpcClient {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        self.stop_timeout().await?;
-        self.stop_receiver().await?;
+        self.inner.stop_timeout().await?;
+        self.inner.stop_receiver().await?;
         Ok(())
     }
 
@@ -262,9 +352,9 @@ impl RpcClient {
         self.inner.ws.is_open()
     }
 
-    pub async fn call(
+    pub async fn call_callback_with_buffer(
         &self,
-        op : u32,
+        op : Ops,
         message : Message<'_>,
         callback : RpcResponseFn
     ) -> Result<()> {
@@ -276,32 +366,88 @@ impl RpcClient {
         let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
         pending.insert(id,Pending::new(callback));
         drop(pending);
-        self.inner.ws.post(to_ws_msg((ReqHeader{op,id},message))).await?;
+        self.inner.ws.post(to_ws_msg((ReqHeader{op : op.into(),id},message))).await?;
         Ok(())
     }
 
-
-    async fn stop_receiver(&self) -> Result<()> {
-        if self.inner.receiver_is_running.load(Ordering::SeqCst) {
-            return Ok(());
+    pub async fn call_async_with_buffer(
+        &self,
+        op : Ops,
+        // op : u32,
+        message : Message<'_>,
+        // callback : RpcResponseFn
+    ) -> Result<Option<Vec<u8>>> {
+        if !self.is_open() {
+            return Err(WebSocketError::NotConnected.into());
         }
 
-        self.inner.ws.inject_ctl(Ctl::RpcCtl(RPC_CTL_RECEIVER_SHUTDOWN)).map_err(|_| { Error::ReceiverCtl })?;
-        self.inner.receiver_shutdown.listener.clone().await;
+        let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
+        let (sender,receiver) = oneshot();
 
-        Ok(())
+        {
+            let mut pending = self.inner.pending.lock().unwrap();
+            pending.insert(id,Pending::new(Arc::new(Box::new(move |result| {
+                let resp = match result {
+                    Ok(Some(data)) => Ok(Some(data.to_vec())),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(e),
+                };
+                sender.try_send(resp).unwrap();
+            }))));
+            drop(pending);
+        }
+
+        self.inner.ws.post(to_ws_msg((ReqHeader{op : op.into(),id},message))).await?;
+        receiver.recv().await?
     }
 
-    async fn stop_timeout(&self) -> Result<()> {
-        if self.inner.timeout_is_running.load(Ordering::SeqCst) != true {
-            return Ok(());
-        }
+    pub async fn call<Req,Resp>(
+        &self,
+        op : Ops, //u32,
+        req : Req,
+    ) -> Result<Resp>
+    where
+        Req : BorshSerialize + Send + Sync + 'static,
+        Resp : BorshDeserialize + Send + Sync +'static,
+    {
+        let data = req.try_to_vec().map_err(|_| { Error::BorshSerialize })?;
 
-        self.inner.timeout_shutdown.request.trigger.trigger();
-        self.inner.timeout_shutdown.response.listener.clone().await;
+        let resp = self.call_async_with_buffer(op, Message::Request(&data)).await?;
+
+        match resp {
+            Some(data) => {
+                Ok(Resp::try_from_slice(&data).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
+            },
+            None => { Err(Error::NoDataInErrorResponse) }
+        }
+    }
+
+    // pub async fn call(
+    //     &self,
+    //     op : u32,
+    //     message : Message<'_>,
+    //     // callback : RpcResponseFn
+    // ) -> Result<()> {
+    //     if !self.is_open() {
+    //         return Err(WebSocketError::NotConnected.into());
+    //     }
+
         
-        Ok(())
-    }
+    //     let mut pending = self.inner.pending.lock().unwrap();
+    //     let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
+
+    //     // self.rpc.call(RpcOps::Borsh as u32, Message::Request(&data), Arc::new(Box::new(move |result| {}))
+
+    //     let (sender, receiver) = oneshot();
+    //     pending.insert(id,Pending::new(Arc::new(Box::new(move |result| {
+
+    //     }))));
+    //     drop(pending);
+    //     self.inner.ws.post(to_ws_msg((ReqHeader{op,id},message))).await?;
+    //     Ok(())
+    // }
+
+
 
 }
 

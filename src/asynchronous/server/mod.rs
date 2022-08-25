@@ -8,6 +8,9 @@ pub use self::server::*;
 mod with_borsh;
 pub use self::with_borsh::*;
 
+mod with_serde;
+pub use self::with_serde::*;
+
 pub mod error;
 // pub use self::error::*;
 

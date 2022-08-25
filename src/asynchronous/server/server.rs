@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use async_trait::async_trait;
@@ -14,6 +13,13 @@ use workflow_websocket::server::{
 use tungstenite::Message;
 use borsh::BorshSerialize;
 
+
+pub fn result<Resp>(resp:Resp) -> Result<Option<Vec<u8>>,RpcResponseError>
+where Resp : BorshSerialize {
+    let data = resp.try_to_vec().map_err(|_|RpcResponseError::RespSerialize)?;
+    Ok(Some(data))
+}
+
 pub struct RpcContext {
     pub peer : SocketAddr,
 }
@@ -22,7 +28,7 @@ pub struct RpcContext {
 #[async_trait]
 pub trait RpcHandler<Ops> : Send + Sync + 'static
 where
-    Ops : Debug + Send + Sync + 'static
+    Ops : Send + Sync + 'static
 {
     async fn handle_request(self : Arc<Self>, op : Ops, data : Option<&[u8]>) -> Result<Option<Vec<u8>>, RpcResponseError>;
 }
@@ -30,14 +36,14 @@ where
 #[derive(Clone)]
 pub struct RpcWebSocketHandler<Ops>
 where
-    Ops: Debug + Send + Sync + TryFrom<u32> + 'static
+    Ops: Send + Sync + TryFrom<u32> + 'static
 {
     rpc_handler : Arc<dyn RpcHandler<Ops>>
 }
 
 impl<Ops> RpcWebSocketHandler<Ops>
 where
-    Ops: Debug + Send + Sync + TryFrom<u32> + 'static
+    Ops: Send + Sync + TryFrom<u32> + 'static
 {
     pub fn new(rpc_handler : Arc<dyn RpcHandler<Ops>>) -> Self {
         Self {
@@ -49,7 +55,7 @@ where
 #[async_trait]
 impl<Ops> WebSocketHandler for RpcWebSocketHandler<Ops>
 where 
-    Ops: Debug + Clone + Send + Sync + TryFrom<u32> + 'static,
+    Ops: Send + Sync + TryFrom<u32> + 'static,
     <Ops as TryFrom<u32>>::Error: Sync + Send + 'static
 {
     type Context = Arc<RpcContext>;
@@ -104,7 +110,7 @@ where
 
 pub struct RpcServer<Ops>
 where 
-    Ops : Debug + Clone + Send + Sync  + TryFrom<u32> + 'static,
+    Ops : Send + Sync  + TryFrom<u32> + 'static,
     <Ops as TryFrom<u32>>::Error: Sync + Send + 'static
 {
     ws_server : Arc<WebSocketServer<RpcWebSocketHandler<Ops>>>,
@@ -112,7 +118,7 @@ where
 
 impl<Ops> RpcServer<Ops>
 where 
-    Ops : Debug + Clone + Send + Sync + TryFrom<u32> + 'static,
+    Ops : Send + Sync + TryFrom<u32> + 'static,
     <Ops as TryFrom<u32>>::Error: Sync + Send + 'static
 {
     pub fn new(rpc_handler : Arc<dyn RpcHandler<Ops>>) -> Arc<RpcServer<Ops>> {

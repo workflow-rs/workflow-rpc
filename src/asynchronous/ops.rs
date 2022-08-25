@@ -6,6 +6,8 @@ u32_try_from!{
     pub enum RpcOps {
         Raw = 0,
         Borsh,
+        Serde,
+        User = 0xff,
     }
 }
 
