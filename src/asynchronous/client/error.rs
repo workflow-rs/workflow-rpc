@@ -53,8 +53,8 @@ pub enum Error {
     #[error("RPC: serde deserialization error")]
     SerdeDeserialize(String),
     /// RPC call succeeded, but error occurred deserializing borsh response
-    #[error("RPC: borsh error deserializing response")]
-    BorshResponseDeserialize,
+    #[error("RPC: borsh error deserializing response: {0}")]
+    BorshResponseDeserialize(String),
 
     #[error("RPC: channel receive error")]
     ChannelRecvError,

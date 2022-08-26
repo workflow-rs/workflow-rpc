@@ -36,7 +36,8 @@ const STATUS_ERROR: u32 = 1;
 
 const RPC_CTL_RECEIVER_SHUTDOWN: u32 = 0;
 
-pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<Option<&[u8]>>) + Sync + Send)>>;
+// pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<Option<&[u8]>>) + Sync + Send)>>;
+pub type RpcResponseFn = Arc<Box<(dyn Fn(Result<&[u8]>) + Sync + Send)>>;
 
 
 
@@ -188,6 +189,7 @@ impl Inner {
 
                         match msg.status {
                             STATUS_SUCCESS  => { 
+                                // log_trace!("rpc STATUS_SUCCESS: {} {:?}", msg.status, msg.data);
                             
                                 // log_trace!("*** CALLBACK WITH DATA: {:?}", msg.data);
                                 
@@ -195,19 +197,19 @@ impl Inner {
                             
                             },
                             STATUS_ERROR => {
-
-                                match msg.data {
-                                    Some(data) => {
-                                        if let Ok(err) = RpcResponseError::try_from_slice(data) {
+                                // log_trace!("rpc STATUS_ERROR: {} {:?}", msg.status, msg.data);
+                                // match msg.data {
+                                    // Some(data) => {
+                                        if let Ok(err) = RpcResponseError::try_from_slice(msg.data) {
                                             (pending.callback)(Err(Error::RpcCall(err)));
                                         } else {
                                             (pending.callback)(Err(Error::ErrorDeserializingResponseData));
                                         }
-                                    },
-                                    None => {
-                                        (pending.callback)(Err(Error::NoDataInErrorResponse));
-                                    }
-                                }
+                                    // },
+                                    // None => {
+                                    //     (pending.callback)(Err(Error::NoDataInErrorResponse));
+                                    // }
+                                // }
                             }
                             code  => { 
                                 (pending.callback)(Err(Error::StatusCode(code))) 
@@ -383,7 +385,8 @@ where
         // op : u32,
         message : Message<'_>,
         // callback : RpcResponseFn
-    ) -> Result<Option<Vec<u8>>> {
+    // ) -> Result<Option<Vec<u8>>> {
+    ) -> Result<Vec<u8>> {
         if !self.is_open() {
             return Err(WebSocketError::NotConnected.into());
         }
@@ -395,9 +398,18 @@ where
             let mut pending = self.inner.pending.lock().unwrap();
             pending.insert(id,Pending::new(Arc::new(Box::new(move |result| {
                 let resp = match result {
-                    Ok(Some(data)) => Ok(Some(data.to_vec())),
-                    Ok(None) => Ok(None),
+                    Ok(data) => Ok(data.to_vec()),
                     Err(e) => Err(e),
+
+                    // Ok(Some(data)) => Ok(Some(data.to_vec())),
+                    // Ok(None) => {
+                    //     log_trace!("MATCHING OK NONE");
+                    //     Ok(None)
+                    // },
+                    // Err(e) => {
+                    //     log_trace!("MATCHING ERROR {:?}", e);
+                    //     Err(e)
+                    // },
                 };
                 sender.try_send(resp).unwrap();
             }))));
@@ -412,6 +424,7 @@ where
         &self,
         op : Ops, //u32,
         req : Req,
+    // ) -> Result<Option<Resp>>
     ) -> Result<Resp>
     where
         Req : BorshSerialize + Send + Sync + 'static,
@@ -422,13 +435,32 @@ where
 
         let resp = self.call_async_with_buffer(op, Message::Request(&data)).await?;
 
-        match resp {
-            Some(data) => {
-                // log_trace!("Receiving and deserialized response {:?}", data);
-                Ok(Resp::try_from_slice(&data).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
-            },
-            None => { Err(Error::NoDataInErrorResponse) }
-        }
+        // match resp {
+        //     Some(vec) => {
+        //         Ok(//Some(
+        //             Resp::try_from_slice(&vec)
+        //                 .map_err(|e|Error::BorshResponseDeserialize(e.to_string()))?
+        //         )//)
+        //     },
+        //     None => Ok(None)
+        // }
+        // let result = resp.map(
+        //     |data|
+        //         Resp::try_from_slice(&data)
+        //             .map_err(|e|Error::BorshResponseDeserialize(e.to_string())?.unwrap()));
+        // Ok(result)
+        // Ok(resp)
+        Ok(Resp::try_from_slice(&resp).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
+        // match resp {
+        //     Some(data) => {
+        //         // log_trace!("Receiving and deserialized response {:?}", data);
+        //         Ok(Resp::try_from_slice(&data).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
+        //     },
+        //     None => {
+        //         Ok(Resp::try_from_slice(&[]).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
+        //         //  Err(Error::NoDataInErrorResponse) 
+        //     }
+        // }
     }
 
     // pub async fn call(

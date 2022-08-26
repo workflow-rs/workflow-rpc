@@ -65,7 +65,8 @@ where
 pub struct ReqMessage<'data> {
     pub id : u64,
     pub op : u32,
-    pub data : Option<&'data [u8]>,
+    pub data : &'data [u8],
+    // pub data : Option<&'data [u8]>,
     // pub data : Option<&'data [u8]>,
 }
 
@@ -88,7 +89,8 @@ impl<'data> TryFrom<&'data [u8]> for ReqMessage<'data> {
 
         let header: &ReqHeader = unsafe { std::mem::transmute(&src[0]) };
         let ReqHeader { id, op } = *header;
-        let data = if src.len() == size_of::<ReqHeader>() { None } else { Some(&src[size_of::<ReqHeader>()..]) };
+        // let data = if src.len() == size_of::<ReqHeader>() { None } else { Some(&src[size_of::<ReqHeader>()..]) };
+        let data = &src[size_of::<ReqHeader>()..];
 
         let message = ReqMessage {
             id,
@@ -107,11 +109,12 @@ impl<'data> TryFrom<&'data [u8]> for ReqMessage<'data> {
 pub struct RespMessage<'data> {
     pub id : u64,
     pub status : u32,
-    pub data : Option<&'data [u8]>,
+    // pub data : Option<&'data [u8]>,
+    pub data : &'data [u8],
 }
 
 impl<'data> RespMessage<'data> {
-    pub fn new(id: u64, status: u32, data: Option<&'data [u8]>) -> RespMessage<'data> {
+    pub fn new(id: u64, status: u32, data: &'data [u8]) -> RespMessage<'data> {
         RespMessage {
             id,
             status,
@@ -120,25 +123,27 @@ impl<'data> RespMessage<'data> {
     }
 
     pub fn try_to_vec(&self) -> Result<Vec<u8>, Error> {
-        match self.data {
-            Some(data) => {
-                let len = size_of::<RespHeader>() + data.len();
+        // match self.data {
+        //     Some(data) => {
+                let len = size_of::<RespHeader>() + self.data.len();
                 let mut buffer = Vec::with_capacity(len);
                 unsafe { buffer.set_len(len); }
                 let header: &mut RespHeader = unsafe { std::mem::transmute(&mut buffer[0]) };
                 *header = RespHeader { id : self.id, status : self.status };
-                buffer[size_of::<RespHeader>()..].copy_from_slice(&data);
+                if self.data.len() > 0 {
+                    buffer[size_of::<RespHeader>()..].copy_from_slice(&self.data);
+                }
                 Ok(buffer)
-            },
-            None => {
-                let mut buffer = Vec::with_capacity(size_of::<RespHeader>());
-                unsafe { buffer.set_len(size_of::<RespHeader>()); }
-                let header: &mut RespHeader = unsafe { std::mem::transmute(&mut buffer[0]) };
-                *header = RespHeader { id : self.id, status : self.status };
-                Ok(buffer)
+            // },
+            // None => {
+            //     let mut buffer = Vec::with_capacity(size_of::<RespHeader>());
+            //     unsafe { buffer.set_len(size_of::<RespHeader>()); }
+            //     let header: &mut RespHeader = unsafe { std::mem::transmute(&mut buffer[0]) };
+            //     *header = RespHeader { id : self.id, status : self.status };
+            //     Ok(buffer)
 
-            }
-        }
+            // }
+        // }
     }
 }
 
@@ -152,7 +157,8 @@ impl<'data> TryFrom<&'data [u8]> for RespMessage<'data> {
 
         let header: &RespHeader = unsafe { std::mem::transmute(&src[0]) };
         let RespHeader { id, status } = *header;
-        let data = if src.len() == size_of::<RespHeader>() { None } else { Some(&src[size_of::<RespHeader>()..]) };
+        // let data = if src.len() == size_of::<RespHeader>() { None } else { Some(&src[size_of::<RespHeader>()..]) };
+        let data = &src[size_of::<RespHeader>()..];
 
         let message = RespMessage {
             id,

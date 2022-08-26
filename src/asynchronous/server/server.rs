@@ -30,7 +30,8 @@ pub trait RpcHandler<Ops> : Send + Sync + 'static
 where
     Ops : Send + Sync + 'static
 {
-    async fn handle_request(self : Arc<Self>, op : Ops, data : Option<&[u8]>) -> Result<Option<Vec<u8>>, RpcResponseError>;
+    // async fn handle_request(self : Arc<Self>, op : Ops, data : Option<&[u8]>) -> Result<Option<Vec<u8>>, RpcResponseError>;
+    async fn handle_request(self : Arc<Self>, op : Ops, data : &[u8]) -> Result<Vec<u8>, RpcResponseError>;
 }
 
 #[derive(Clone)]
@@ -82,7 +83,9 @@ where
                 match result {
                     Ok(data) => {
                         // log_trace!("sending response {:?}",data);
-                        if let Ok(msg) = RespMessage::new(req.id, 0, data.as_deref()).try_to_vec() {
+                        // if let Ok(msg) = RespMessage::new(req.id, 0, data.as_deref()).try_to_vec() {
+                        // let data = if data.len() > 0 { Some(&data[..]) } else { None };
+                        if let Ok(msg) = RespMessage::new(req.id, 0, &data).try_to_vec() {
                             // println!("FULL RESPONSE: {:?}",msg);
                             match sink.send(msg.into()) {
                                 Ok(_) => {},
@@ -91,8 +94,10 @@ where
                         }
                     },
                     Err(err) => {
-                        if let Ok(err) = err.try_to_vec() {
-                            if let Ok(msg) = RespMessage::new(req.id, 1, Some(&err)).try_to_vec() {
+                        log_trace!("RPC SERVER ERROR: {:?}", err);
+                        if let Ok(err_vec) = err.try_to_vec() {
+                            // if let Ok(msg) = RespMessage::new(req.id, 1, Some(&err_vec)).try_to_vec() {
+                            if let Ok(msg) = RespMessage::new(req.id, 1, &err_vec).try_to_vec() {
                                 match sink.send(msg.into()) {
                                     Ok(_) => {},
                                     Err(e) => { log_trace!("Sink error: {:?}", e); }
