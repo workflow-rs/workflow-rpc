@@ -11,6 +11,8 @@ use serde::*;
 #[derive(Error, Debug)] // , BorshSerialize, BorshDeserialize)]
 pub enum Error {
 
+    #[error("Invalid URL {0}")]
+    InvalidUrl(String),
     /// Underlying WebSocket error
     #[error("WebSocket error: {0}")]
     WebSocketError(#[from] WebSocketError),

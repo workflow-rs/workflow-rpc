@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use async_trait::async_trait;
-use borsh::BorshSerialize;
 use crate::asynchronous::server::RpcHandler;
 use crate::asynchronous::error::RpcResponseError;
 
@@ -42,7 +41,7 @@ where
             Some(data) => {
                 let response = self.handler.clone().handle_request(op,data).await;
                 match response {
-                    Ok(data) => Ok(Some(data.try_to_vec().map_err(|_|{ RpcResponseError::RespSerialize })?)),
+                    Ok(data) => Ok(Some(data)),
                     Err(err) => Err(err),
                 }
             },

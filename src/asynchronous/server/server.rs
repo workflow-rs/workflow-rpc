@@ -77,10 +77,13 @@ where
         let op = Ops::try_from(req.op); 
         match op {
             Ok(op) => {
+                // log_trace!("receiving message {:?}", req.data);
                 let result = self.rpc_handler.clone().handle_request(op,req.data).await;
                 match result {
                     Ok(data) => {
+                        // log_trace!("sending response {:?}",data);
                         if let Ok(msg) = RespMessage::new(req.id, 0, data.as_deref()).try_to_vec() {
+                            // println!("FULL RESPONSE: {:?}",msg);
                             match sink.send(msg.into()) {
                                 Ok(_) => {},
                                 Err(e) => { log_trace!("Sink error: {:?}", e); }

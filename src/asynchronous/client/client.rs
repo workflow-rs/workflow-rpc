@@ -178,6 +178,7 @@ impl Inner {
             log_error!("RPC receiving response with {} bytes, which is smaller than required header size of {} bytes", response.len(), size_of::<ReqHeader>());
         }
 
+        // log_trace!("RECEIVING FULL BINARY RESPONSE: {:?}", response);
         let msg = RespMessage::try_from(response);
         match msg {
             Ok(msg) => {
@@ -186,7 +187,13 @@ impl Inner {
                     Some(pending) => {
 
                         match msg.status {
-                            STATUS_SUCCESS  => { (pending.callback)(Ok(msg.data)); },
+                            STATUS_SUCCESS  => { 
+                            
+                                // log_trace!("*** CALLBACK WITH DATA: {:?}", msg.data);
+                                
+                                (pending.callback)(Ok(msg.data)); 
+                            
+                            },
                             STATUS_ERROR => {
 
                                 match msg.data {
@@ -218,11 +225,11 @@ impl Inner {
             }
         }
 
-        let header: &RespHeader = unsafe { std::mem::transmute(&response[0]) };
-        let id = header.id;
-        let status = header.status;
+        // let header: &RespHeader = unsafe { std::mem::transmute(&response[0]) };
+        // let id = header.id;
+        // let status = header.status;
 
-        log_trace!("RECEIVING MESSAGE ID: {:x}  STATUS: {}", id, status);
+        // log_trace!("RECEIVING MESSAGE ID: {:x}  STATUS: {}", id, status);
     }   
     
 
@@ -411,11 +418,13 @@ where
         Resp : BorshDeserialize + Send + Sync +'static,
     {
         let data = req.try_to_vec().map_err(|_| { Error::BorshSerialize })?;
+        // log_trace!("Sending request {:?}", data);
 
         let resp = self.call_async_with_buffer(op, Message::Request(&data)).await?;
 
         match resp {
             Some(data) => {
+                // log_trace!("Receiving and deserialized response {:?}", data);
                 Ok(Resp::try_from_slice(&data).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
             },
             None => { Err(Error::NoDataInErrorResponse) }
