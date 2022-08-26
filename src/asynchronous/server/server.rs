@@ -9,7 +9,6 @@ use workflow_log::*;
 use workflow_websocket::server::{
     WebSocketServer, Result as WebSocketResult
 };
-// use tungstenite::{Message, Result};
 use tungstenite::Message;
 use borsh::BorshSerialize;
 
@@ -30,7 +29,6 @@ pub trait RpcHandler<Ops> : Send + Sync + 'static
 where
     Ops : Send + Sync + 'static
 {
-    // async fn handle_request(self : Arc<Self>, op : Ops, data : Option<&[u8]>) -> Result<Option<Vec<u8>>, RpcResponseError>;
     async fn handle_request(self : Arc<Self>, op : Ops, data : &[u8]) -> Result<Vec<u8>, RpcResponseError>;
 }
 
@@ -78,15 +76,10 @@ where
         let op = Ops::try_from(req.op); 
         match op {
             Ok(op) => {
-                // log_trace!("receiving message {:?}", req.data);
                 let result = self.rpc_handler.clone().handle_request(op,req.data).await;
                 match result {
                     Ok(data) => {
-                        // log_trace!("sending response {:?}",data);
-                        // if let Ok(msg) = RespMessage::new(req.id, 0, data.as_deref()).try_to_vec() {
-                        // let data = if data.len() > 0 { Some(&data[..]) } else { None };
                         if let Ok(msg) = RespMessage::new(req.id, 0, &data).try_to_vec() {
-                            // println!("FULL RESPONSE: {:?}",msg);
                             match sink.send(msg.into()) {
                                 Ok(_) => {},
                                 Err(e) => { log_trace!("Sink error: {:?}", e); }
@@ -96,7 +89,6 @@ where
                     Err(err) => {
                         log_trace!("RPC SERVER ERROR: {:?}", err);
                         if let Ok(err_vec) = err.try_to_vec() {
-                            // if let Ok(msg) = RespMessage::new(req.id, 1, Some(&err_vec)).try_to_vec() {
                             if let Ok(msg) = RespMessage::new(req.id, 1, &err_vec).try_to_vec() {
                                 match sink.send(msg.into()) {
                                     Ok(_) => {},

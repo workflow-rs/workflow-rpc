@@ -89,7 +89,6 @@ impl Inner {
 
     fn timeout_task(self : Arc<Self>) {   
         self.timeout_is_running.store(true, Ordering::SeqCst);
-        // let self_ = self.clone();
         workflow_core::task::spawn(async move {
             
             let shutdown = self.timeout_shutdown.request.listener.clone().fuse();
@@ -179,7 +178,6 @@ impl Inner {
             log_error!("RPC receiving response with {} bytes, which is smaller than required header size of {} bytes", response.len(), size_of::<ReqHeader>());
         }
 
-        // log_trace!("RECEIVING FULL BINARY RESPONSE: {:?}", response);
         let msg = RespMessage::try_from(response);
         match msg {
             Ok(msg) => {
@@ -189,27 +187,14 @@ impl Inner {
 
                         match msg.status {
                             STATUS_SUCCESS  => { 
-                                // log_trace!("rpc STATUS_SUCCESS: {} {:?}", msg.status, msg.data);
-                            
-                                // log_trace!("*** CALLBACK WITH DATA: {:?}", msg.data);
-                                
                                 (pending.callback)(Ok(msg.data)); 
-                            
                             },
                             STATUS_ERROR => {
-                                // log_trace!("rpc STATUS_ERROR: {} {:?}", msg.status, msg.data);
-                                // match msg.data {
-                                    // Some(data) => {
-                                        if let Ok(err) = RpcResponseError::try_from_slice(msg.data) {
-                                            (pending.callback)(Err(Error::RpcCall(err)));
-                                        } else {
-                                            (pending.callback)(Err(Error::ErrorDeserializingResponseData));
-                                        }
-                                    // },
-                                    // None => {
-                                    //     (pending.callback)(Err(Error::NoDataInErrorResponse));
-                                    // }
-                                // }
+                                if let Ok(err) = RpcResponseError::try_from_slice(msg.data) {
+                                    (pending.callback)(Err(Error::RpcCall(err)));
+                                } else {
+                                    (pending.callback)(Err(Error::ErrorDeserializingResponseData));
+                                }
                             }
                             code  => { 
                                 (pending.callback)(Err(Error::StatusCode(code))) 
@@ -226,68 +211,7 @@ impl Inner {
                 log_error!("Failed to decode rpc server response: {:?}", err);
             }
         }
-
-        // let header: &RespHeader = unsafe { std::mem::transmute(&response[0]) };
-        // let id = header.id;
-        // let status = header.status;
-
-        // log_trace!("RECEIVING MESSAGE ID: {:x}  STATUS: {}", id, status);
     }   
-    
-
-    // fn handle_json_response(&self, response : String) {
-
-    //     // if response.len() < size_of::<RespHeader>() {
-    //     //     log_error!("RPC receiving response with {} bytes, which is smaller than required header size of {} bytes", response.len(), size_of::<ReqHeader>());
-    //     // }
-
-    //     // let msg = RespMessage::try_from(response);
-    //     // match msg {
-    //     //     Ok(msg) => {
-
-    //     //         match self.pending.lock().unwrap().remove(&msg.id) {
-    //     //             Some(pending) => {
-
-    //     //                 match msg.status {
-    //     //                     STATUS_SUCCESS  => { (pending.callback)(Ok(msg.data)); },
-    //     //                     STATUS_ERROR => {
-
-    //     //                         match msg.data {
-    //     //                             Some(data) => {
-    //     //                                 if let Ok(err) = RpcResponseError::try_from_slice(data) {
-    //     //                                     (pending.callback)(Err(Error::RpcCall(err)));
-    //     //                                 } else {
-    //     //                                     (pending.callback)(Err(Error::ErrorDeserializingResponseData));
-    //     //                                 }
-    //     //                             },
-    //     //                             None => {
-    //     //                                 (pending.callback)(Err(Error::NoDataInErrorResponse));
-    //     //                             }
-    //     //                         }
-    //     //                     }
-    //     //                     code  => { 
-    //     //                         (pending.callback)(Err(Error::StatusCode(code))) 
-    //     //                     },
-    //     //                 }
-    //     //             },
-    //     //             None => {
-    //     //                 log_trace!("rpc callback with id {} not found", msg.id);
-    //     //             }
-    //     //         }
-        
-    //     //     },
-    //     //     Err(err) => {
-    //     //         log_error!("Failed to decode rpc server response: {:?}", err);
-    //     //     }
-    //     // }
-
-    //     // let header: &RespHeader = unsafe { std::mem::transmute(&response[0]) };
-    //     // let id = header.id;
-    //     // let status = header.status;
-
-    //     // log_trace!("RECEIVING MESSAGE ID: {:x}  STATUS: {}", id, status);
-    // }   
-    
     
     async fn stop_receiver(&self) -> Result<()> {
         if self.receiver_is_running.load(Ordering::SeqCst) {
@@ -382,10 +306,7 @@ where
     pub async fn call_async_with_buffer(
         &self,
         op : Ops,
-        // op : u32,
         message : Message<'_>,
-        // callback : RpcResponseFn
-    // ) -> Result<Option<Vec<u8>>> {
     ) -> Result<Vec<u8>> {
         if !self.is_open() {
             return Err(WebSocketError::NotConnected.into());
@@ -400,16 +321,6 @@ where
                 let resp = match result {
                     Ok(data) => Ok(data.to_vec()),
                     Err(e) => Err(e),
-
-                    // Ok(Some(data)) => Ok(Some(data.to_vec())),
-                    // Ok(None) => {
-                    //     log_trace!("MATCHING OK NONE");
-                    //     Ok(None)
-                    // },
-                    // Err(e) => {
-                    //     log_trace!("MATCHING ERROR {:?}", e);
-                    //     Err(e)
-                    // },
                 };
                 sender.try_send(resp).unwrap();
             }))));
@@ -422,73 +333,17 @@ where
 
     pub async fn call<Req,Resp>(
         &self,
-        op : Ops, //u32,
+        op : Ops,
         req : Req,
-    // ) -> Result<Option<Resp>>
     ) -> Result<Resp>
     where
         Req : BorshSerialize + Send + Sync + 'static,
         Resp : BorshDeserialize + Send + Sync +'static,
     {
         let data = req.try_to_vec().map_err(|_| { Error::BorshSerialize })?;
-        // log_trace!("Sending request {:?}", data);
-
         let resp = self.call_async_with_buffer(op, Message::Request(&data)).await?;
-
-        // match resp {
-        //     Some(vec) => {
-        //         Ok(//Some(
-        //             Resp::try_from_slice(&vec)
-        //                 .map_err(|e|Error::BorshResponseDeserialize(e.to_string()))?
-        //         )//)
-        //     },
-        //     None => Ok(None)
-        // }
-        // let result = resp.map(
-        //     |data|
-        //         Resp::try_from_slice(&data)
-        //             .map_err(|e|Error::BorshResponseDeserialize(e.to_string())?.unwrap()));
-        // Ok(result)
-        // Ok(resp)
         Ok(Resp::try_from_slice(&resp).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
-        // match resp {
-        //     Some(data) => {
-        //         // log_trace!("Receiving and deserialized response {:?}", data);
-        //         Ok(Resp::try_from_slice(&data).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
-        //     },
-        //     None => {
-        //         Ok(Resp::try_from_slice(&[]).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
-        //         //  Err(Error::NoDataInErrorResponse) 
-        //     }
-        // }
     }
-
-    // pub async fn call(
-    //     &self,
-    //     op : u32,
-    //     message : Message<'_>,
-    //     // callback : RpcResponseFn
-    // ) -> Result<()> {
-    //     if !self.is_open() {
-    //         return Err(WebSocketError::NotConnected.into());
-    //     }
-
-        
-    //     let mut pending = self.inner.pending.lock().unwrap();
-    //     let id = u64::from_le_bytes(rand::random::<[u8; 8]>());
-
-    //     // self.rpc.call(RpcOps::Borsh as u32, Message::Request(&data), Arc::new(Box::new(move |result| {}))
-
-    //     let (sender, receiver) = oneshot();
-    //     pending.insert(id,Pending::new(Arc::new(Box::new(move |result| {
-
-    //     }))));
-    //     drop(pending);
-    //     self.inner.ws.post(to_ws_msg((ReqHeader{op,id},message))).await?;
-    //     Ok(())
-    // }
-
-
 
 }
 
