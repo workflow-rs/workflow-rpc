@@ -271,7 +271,7 @@ where
         receiver
     }
 
-    pub async fn connect(&self, block_until_connected:bool) -> Result<()> {
+    pub async fn connect(&self, block_until_connected:bool) -> Result<Option<Listener>> {
         Ok(self.inner.ws.connect(block_until_connected).await?)
     }
 
