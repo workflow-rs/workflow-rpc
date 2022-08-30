@@ -70,6 +70,10 @@ where
 
     async fn message(self : &Arc<Self>, _ctx : &Self::Context, msg : Message, sink : &UnboundedSender<tungstenite::Message>) -> WebSocketResult<()> {
 
+        if !msg.is_binary() {
+            return Ok(())
+        }
+
         let data = &msg.into_data();
         let req : ReqMessage = data.try_into().expect("invalid message!");
 
