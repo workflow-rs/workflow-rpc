@@ -3,7 +3,6 @@ use ahash::AHashMap;
 use std::{
     mem::size_of, 
     sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}}, 
-    time::{Instant, Duration},
     marker::Send
 };
 use futures::{
@@ -26,6 +25,7 @@ use super::result::Result;
 // use crate::message::*;
 // use crate::error::*;
 use workflow_log::{log_error, log_trace};
+use workflow_core::time::*;
 use workflow_core::channel::*;
 use workflow_core::trigger::*;
 
