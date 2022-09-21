@@ -1,6 +1,6 @@
 [package]
 name = "workflow-rpc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0/MIT"
 repository = "https://github.com/workflow-rs/workflow-rpc"
@@ -17,7 +17,7 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 workflow-log = "0.1.0"
 workflow-core = "0.1.0"
-workflow-websocket = "0.1.0"
+workflow-websocket = "0.1.1"
 # workflow-log = { path = "../workflow-log" }
 # workflow-core = { path = "../workflow-core" }
 # workflow-websocket = { path = "../workflow-websocket" }
