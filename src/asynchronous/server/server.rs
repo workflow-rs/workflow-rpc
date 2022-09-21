@@ -91,7 +91,7 @@ where
                         }
                     },
                     Err(err) => {
-                        log_trace!("RPC SERVER ERROR: {:?}", err);
+                        log_trace!("RPC server error: {:?}", err);
                         if let Ok(err_vec) = err.try_to_vec() {
                             if let Ok(msg) = RespMessage::new(req.id, 1, &err_vec).try_to_vec() {
                                 match sink.send(msg.into()) {
