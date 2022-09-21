@@ -14,12 +14,11 @@ Platform-neutral RPC Client and Native RPC Server
 
 ## Features
 
-RPC library based on top of WORKFLOW-WEBSOCKET that offers both synchronous and asynchronous Binary and JSON data relay over Workflow-WebSocket-based connections. 
+RPC library built on top of [workflow-websocket](https://crates.io/crates/workflow-websocket) crate that offers both asynchronous Binary data relay over WebSocket connections. Synchronous & Asynchronous JSON RPC connections are planned for future releases.
 
-The goal of this crate is to reduce boilerplate as much as possible
-allowing remote function invocation using a single function with two generics `rpc.call<Req,Resp>()` where request and response must implement serlialization the respective serialization traits.
+The goal of this crate is to reduce boilerplate as much as possible allowing remote function invocation using a single function with two generics `rpc.call<Req,Resp>()` where request and response must implement serlialization using the respective serialization traits.
 
-Binary RPC uses Borsh serialization and JSON RPC uses Serde serialization.
+Binary RPC uses [Borsh](https://crates.io/crates/borsh) and JSON RPC uses [Serde](https://crates.io/crates/serde) serializers.
 
 ## Implementation status
 
