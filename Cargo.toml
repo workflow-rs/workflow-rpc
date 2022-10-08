@@ -15,12 +15,12 @@ RPC layer based on workflow-websocket crate offering native & in-browser clients
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-workflow-log = "0.1.0"
-workflow-core = "0.1.0"
-workflow-websocket = "0.1.2"
-# workflow-log = { path = "../workflow-log" }
-# workflow-core = { path = "../workflow-core" }
-# workflow-websocket = { path = "../workflow-websocket" }
+# workflow-log = "0.1.0"
+# workflow-core = "0.1.0"
+# workflow-websocket = "0.1.2"
+workflow-log = { path = "../workflow-log" }
+workflow-core = { path = "../workflow-core" }
+workflow-websocket = { path = "../workflow-websocket" }
 async-trait = "0.1.56"
 wasm-bindgen = "0.2.79"
 borsh = "0.9.3"
