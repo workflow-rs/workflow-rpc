@@ -342,7 +342,7 @@ where
     {
         let data = req.try_to_vec().map_err(|_| { Error::BorshSerialize })?;
         let resp = self.call_async_with_buffer(op, Message::Request(&data)).await?;
-        Ok(Resp::try_from_slice(&resp).map_err(|e|Error::SerdeDeserialize(e.to_string()))?)
+        Ok(Resp::try_from_slice(&resp).map_err(|e|Error::BorshDeserialize(e.to_string()))?)
     }
 
 }
