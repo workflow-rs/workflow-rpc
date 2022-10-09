@@ -44,13 +44,13 @@ pub enum Error {
     #[error("RPC: borsh serialization error")]
     BorshSerialize,
     /// Unable to deserialize borsh data
-    #[error("RPC: borsh deserialization error")]
-    BorshDeserialize,
+    #[error("RPC borsh deserialization error: {0}")]
+    BorshDeserialize(String),
     /// Unable to serialize serde data    
-    #[error("RPC: serde serialization error")]
+    #[error("RPC serde serialization error: {0}")]
     SerdeSerialize(String), //#[from] dyn serde::de::Error),
     /// Unable to deserialize serde data
-    #[error("RPC: serde deserialization error")]
+    #[error("RPC serde deserialization error: {0}")]
     SerdeDeserialize(String),
     /// RPC call succeeded, but error occurred deserializing borsh response
     #[error("RPC: borsh error deserializing response: {0}")]
