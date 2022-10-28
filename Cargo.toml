@@ -30,7 +30,7 @@ manual_future = "0.1.1"
 ahash = "0.8.0"
 thiserror = "1.0.32"
 rand = "0.7.3"
-futures = "0.3.23"
+futures = "0.3.25"
 async-std = { version = "1.12.0", features = ['attributes'] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
